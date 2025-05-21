@@ -2,7 +2,7 @@
 
 The tutorial below demonstrates how to import the DJI Android SDK into a new Android project. Similar steps can be taken for integrating the SDK into an existing application.
 
-## Android Studio Project Setup
+## Android Studio Project Setup111
 
 Screenshots in this section were generated while using Android Studio 3.0. It is recommended, however to use the latest version of Android Studio.
 
