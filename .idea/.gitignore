@@ -1,0 +1,9 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+4-MediaManager/build.gradle
+6-TapFly/build.gradle
+7-Simulator/build.gradle
+8-GEO/build.gradle
+9-VideoDecoder/build.gradle
