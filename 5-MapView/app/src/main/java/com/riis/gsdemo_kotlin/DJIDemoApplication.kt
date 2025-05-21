@@ -6,6 +6,7 @@ import dji.sdk.flightcontroller.FlightController
 import dji.sdk.products.Aircraft
 import dji.sdk.products.HandHeld
 import dji.sdk.sdkmanager.DJISDKManager
+import dji.sdk.gimbal.Gimbal
 
 object DJIDemoApplication {
 

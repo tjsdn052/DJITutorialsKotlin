@@ -23,6 +23,10 @@ import dji.sdk.mission.waypoint.WaypointMissionOperatorListener
 import dji.sdk.sdkmanager.DJISDKManager
 import java.util.concurrent.ConcurrentHashMap
 
+// 직접 추가
+import dji.common.model.LocationCoordinate2D
+import dji.common.flightcontroller.simulator.InitializationData
+
 
 class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnMapReadyCallback, View.OnClickListener {
 

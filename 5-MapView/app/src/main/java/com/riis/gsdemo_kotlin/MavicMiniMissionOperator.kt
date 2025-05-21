@@ -33,6 +33,7 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
+import dji.common.gimbal.GimbalState
 
 private const val TAG = "MMMissionOperator"
 
@@ -102,7 +103,7 @@ class MavicMiniMissionOperator(context: Context) {
     }
 
     private fun initGimbalListener() {
-        DJIDemoApplication.getGimbal()?.setStateCallback { gimbalState ->
+        DJIDemoApplication.getGimbal()?.setStateCallback { gimbalState: GimbalState ->
             currentGimbalPitch = gimbalState.attitudeInDegrees.pitch
             gimbalPitchLiveData.postValue(currentGimbalPitch)
         }
@@ -259,7 +260,7 @@ class MavicMiniMissionOperator(context: Context) {
         }
     }
 
-    private val locationObserver = Observer { currentLocation: LocationCoordinate3D ->
+    private val locationObserver = Observer<LocationCoordinate3D> { currentLocation ->
         //observing changes to the drone's location coordinates
             state = WaypointMissionState.EXECUTING
 
