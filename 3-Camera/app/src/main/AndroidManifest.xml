@@ -46,7 +46,7 @@
             android:required="false" />
         <meta-data
             android:name="com.dji.sdk.API_KEY"
-            android:value="4d103048c2fa9145db524bf0" />
+            android:value="dbe95761ede849ad17d0f952" />
         <!-- DJI SDK -->
 
         <activity android:name="com.riis.fpv.ConnectionActivity"
