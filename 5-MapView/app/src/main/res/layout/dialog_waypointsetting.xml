@@ -46,30 +46,22 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Speed:">
+            android:text="Speed (m/s):">
         </TextView>
-        <RadioGroup
+        <SeekBar
+            android:id="@+id/speedSeekBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="15"   android:progress="10" android:paddingStart="8dp"
+            android:paddingEnd="8dp"/>
+        <TextView
+            android:id="@+id/speedValueTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:id="@+id/speed"
-            android:layout_gravity="center_horizontal">
-            <RadioButton
-                android:id="@+id/lowSpeed"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Low"/>
-            <RadioButton
-                android:id="@+id/MidSpeed"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Mid"/>
-            <RadioButton
-                android:id="@+id/HighSpeed"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="High"/>
-        </RadioGroup>
+            android:text="10.0 m/s"
+            android:minWidth="60dp"
+            android:gravity="end"/>
     </LinearLayout>
 
     <LinearLayout

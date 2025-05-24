@@ -50,7 +50,7 @@ object DJIDemoApplication {
     fun isPlaybackAvailable(): Boolean {
         return isCameraModuleAvailable() && (getProductInstance()?.camera?.playbackManager != null)
     }
-    
+
     fun getGimbal(): Gimbal? {
         val product = getProductInstance() ?: return null
         if (product.isConnected) {

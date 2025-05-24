@@ -7,5 +7,9 @@
     <string name="model_not_available">Model Not Available</string>
     <string name="push_info">Push Info</string>
     <string name="sdk_version">DJI SDK Version: %1$s</string>
-    <string name="mapbox_access_token">pk.eyJ1IjoicmVlZHlqdzEiLCJhIjoiY2twNDBiYTMyMDdqbDJubXV6c2ttcmV6YiJ9.6is-U-4Ee_KtGkBz0gJ6XA</string>
+    <string name="latitude_label">위도: %.6f</string>
+    <string name="longitude_label">경도: %.6f</string>
+    <string name="altitude_label">고도: %.2f m</string>
+    <string name="heading_label">방향: %.2f°</string> <string name="capture_button">캡쳐</string>
+    <string name="mapbox_access_token">sk.eyJ1Ijoic2VvbmdqYWU2NzUxIiwiYSI6ImNtYXhzZXdlZTAxbGYybXNjbTh1cDNtZXIifQ.esmwVMjrTSXCFMuatDLk5A</string>
 </resources>

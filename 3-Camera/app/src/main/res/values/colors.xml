@@ -12,4 +12,4 @@
     <color name="background_blue">#242d34</color>
     <color name="transparent">#00000000</color>
     <color name="dark_gray">#80000000</color>
-</resources>
+    <color name="overlay_background">#80000000</color> </resources>

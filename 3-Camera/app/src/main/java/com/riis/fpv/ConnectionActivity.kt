@@ -55,7 +55,8 @@ class ConnectionActivity : AppCompatActivity() {
                 Manifest.permission.MOUNT_UNMOUNT_FILESYSTEMS,
                 Manifest.permission.READ_EXTERNAL_STORAGE,
                 Manifest.permission.SYSTEM_ALERT_WINDOW,
-                Manifest.permission.READ_PHONE_STATE
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION // 추가된 권한
             ), 1)
 
         //Initialize the UI, register the app with DJI's mobile SDK, and set up the observers
@@ -97,7 +98,7 @@ class ConnectionActivity : AppCompatActivity() {
             }
             else {
                 mTextConnectionStatus.text = "Status: Disconnected"
-                mBtnOpen.isEnabled = false
+                mBtnOpen.isEnabled = true
             }
         })
 

@@ -79,8 +79,8 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     private var mapboxMap: MapboxMap? = null
     private var mavicMiniMissionOperator: MavicMiniMissionOperator? = null
 
-    private val SIMULATED_DRONE_LAT = 42.557965 // 시뮬레이터 사용 시 주석 해제
-    private val SIMULATED_DRONE_LONG = -83.154303 // 시뮬레이터 사용 시 주석 해제
+//    private val SIMULATED_DRONE_LAT = 42.557965 // 시뮬레이터 사용 시 주석 해제
+//    private val SIMULATED_DRONE_LONG = -83.154303 // 시뮬레이터 사용 시 주석 해제
 
     private var altitude = 100f
     private var speed = 10f
@@ -121,8 +121,12 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     override fun onMapClick(point: LatLng): Boolean {
         if (isAdd) {
             // Use the current 'altitude' value for the waypoint added by map click
-            markWaypoint(point, altitude.toDouble())
+            // 마커에 순서(markers.size)를 함께 전달
+            markWaypoint(point, altitude.toDouble(), markers.size)
+            // Waypoint 객체를 생성할 때, 'altitude'는 해당 웨이포인트의 고도로 설정합니다.
+            // 전체 미션 고도가 아닌 개별 웨이포인트의 고도를 사용합니다.
             val waypoint = Waypoint(point.latitude, point.longitude, altitude)
+
 
             if (waypointMissionBuilder == null){
                 waypointMissionBuilder = WaypointMission.Builder().also { builder ->
@@ -141,11 +145,11 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         return true
     }
 
-    // Modified markWaypoint function to accept altitude for marker title/snippet
-    private fun markWaypoint(point: LatLng, alt: Double) {
+    // Modified markWaypoint function to accept altitude and index for marker title/snippet
+    private fun markWaypoint(point: LatLng, alt: Double, index: Int) {
         val markerOptions = MarkerOptions()
             .position(point)
-            .title(String.format(Locale.US, "Lat: %.6f, Lng: %.6f", point.latitude, point.longitude))
+            .title(String.format(Locale.US, "Waypoint %d: Lat: %.6f, Lng: %.6f", index + 1, point.latitude, point.longitude)) // 순서 추가
             .snippet(String.format(Locale.US, "Alt: %.3f m", alt))
         mapboxMap?.let {
             val marker = it.addMarker(markerOptions)
@@ -207,16 +211,16 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     @SuppressLint("SetTextI18n")
     private fun initFlightController() {
         DJIDemoApplication.getFlightController()?.let { flightController ->
-            val simulateLocation = LocationCoordinate2D(SIMULATED_DRONE_LAT, SIMULATED_DRONE_LONG)
-            flightController.simulator.start(
-                InitializationData.createInstance(simulateLocation, 10, 10)
-            ){ error ->
-                if (error != null) {
-                    Log.e(TAG, "initFlightController: Error starting simulator: ${error.description}")
-                } else {
-                    Log.d(TAG, "initFlightController: Simulator started successfully")
-                }
-            }
+//            val simulateLocation = LocationCoordinate2D(SIMULATED_DRONE_LAT, SIMULATED_DRONE_LONG)
+//            flightController.simulator.start(
+//                InitializationData.createInstance(simulateLocation, 10, 10)
+//            ){ error ->
+//                if (error != null) {
+//                    Log.e(TAG, "initFlightController: Error starting simulator: ${error.description}")
+//                } else {
+//                    Log.d(TAG, "initFlightController: Simulator started successfully")
+//                }
+//            }
 
             flightController.setStateCallback { flightControllerState ->
                 droneLocationLat = flightControllerState.aircraftLocation.latitude
@@ -278,7 +282,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
                 }
                 waypointList.clear()
                 waypointMissionBuilder?.waypointList(waypointList)?.waypointCount(waypointList.size)
-                markers.clear()
+                markers.clear() // 마커도 함께 클리어
                 setResultToToast("Waypoints cleared")
             }
             R.id.config -> {
@@ -324,7 +328,8 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             }
 
             val newPoint = LatLng(latitude, longitude)
-            markWaypoint(newPoint, altitude.toDouble()) // Mark with specified altitude
+            // 마커에 순서(waypointList.size)를 함께 전달
+            markWaypoint(newPoint, altitude.toDouble(), waypointList.size) //
 
             val waypoint = Waypoint(latitude, longitude, altitude)
             if (waypointMissionBuilder == null) {
@@ -456,16 +461,39 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         val wayPointSettings = layoutInflater.inflate(R.layout.dialog_waypointsetting, null) as LinearLayout
 
         val wpAltitudeTV = wayPointSettings.findViewById<EditText>(R.id.altitude)
-        val speedRG = wayPointSettings.findViewById<RadioGroup>(R.id.speed)
+        val speedSeekBar = wayPointSettings.findViewById<SeekBar>(R.id.speedSeekBar) // SeekBar 추가
+        val speedValueTextView = wayPointSettings.findViewById<TextView>(R.id.speedValueTextView) // TextView 추가
         val actionAfterFinishedRG = wayPointSettings.findViewById<RadioGroup>(R.id.actionAfterFinished)
         val headingRG = wayPointSettings.findViewById<RadioGroup>(R.id.heading)
 
         wpAltitudeTV.setText(altitude.toInt().toString())
-        when (speed) {
-            3.0f -> speedRG.check(R.id.lowSpeed)
-            5.0f -> speedRG.check(R.id.MidSpeed)
-            10.0f -> speedRG.check(R.id.HighSpeed)
-        }
+
+        // SeekBar 초기 값 설정
+        speedSeekBar.progress = speed.toInt()
+        speedValueTextView.text = String.format(Locale.US, "Current Speed: %.1f m/s", speed)
+
+
+        // SeekBar 변경 리스너
+        speedSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                // 슬라이더 값이 변경될 때마다 speed 변수와 TextView 업데이트
+                speed = progress.toFloat()
+                speedValueTextView.text = String.format(Locale.US, "Current Speed: %.1f m/s", speed)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                // 사용자가 슬라이더를 터치하기 시작할 때
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                // 사용자가 슬라이더 터치를 멈출 때
+                setResultToToast("Speed set to: %.1f m/s".format(speed))
+            }
+        })
+
+        // 기존 RadioGroup 속도 리스너는 이제 사용하지 않으므로 제거
+        // speedRG.setOnCheckedChangeListener { _, checkedId -> ... }
+
         when (finishedAction) {
             WaypointMissionFinishedAction.NO_ACTION -> actionAfterFinishedRG.check(R.id.finishNone)
             WaypointMissionFinishedAction.GO_HOME -> actionAfterFinishedRG.check(R.id.finishGoHome)
@@ -481,15 +509,6 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             else -> {}
         }
 
-
-        speedRG.setOnCheckedChangeListener { _, checkedId ->
-            speed = when (checkedId) {
-                R.id.lowSpeed -> 3.0f
-                R.id.MidSpeed -> 5.0f
-                R.id.HighSpeed -> 10.0f
-                else -> speed
-            }
-        }
 
         actionAfterFinishedRG.setOnCheckedChangeListener { _, checkedId ->
             finishedAction = when (checkedId) {
@@ -534,16 +553,18 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             .maxFlightSpeed(speed)
             .flightPathMode(WaypointMissionFlightPathMode.NORMAL)
             .gotoFirstWaypointMode(WaypointMissionGotoWaypointMode.SAFELY)
-            .isGimbalPitchRotationEnabled = true
+            .isGimbalPitchRotationEnabled = true // 짐벌 피치 회전 활성화
 
         if (builder.waypointList.isNotEmpty()) {
+            // 각 웨이포인트의 고도를 개별적으로 유지
+            // waypoint.altitude = altitude // 이 줄은 제거합니다.
             for (waypoint in builder.waypointList) {
-                waypoint.altitude = altitude
+                // START_TAKE_PHOTO 액션을 웨이포인트 구성에서 제거
+                // 왜냐하면 MavicMiniMissionOperator에서 위치 기반으로 사진을 찍을 것이기 때문입니다.
+                waypoint.waypointActions.removeAll { it.actionType == WaypointActionType.START_TAKE_PHOTO }
+                // 짐벌 피치 액션 추가 (선택 사항, 필요에 따라)
                 if (waypoint.waypointActions.none { it.actionType == WaypointActionType.GIMBAL_PITCH }) {
-                    waypoint.addAction(WaypointAction(WaypointActionType.GIMBAL_PITCH, -90))
-                }
-                if (waypoint.waypointActions.none { it.actionType == WaypointActionType.START_TAKE_PHOTO }) {
-                    waypoint.addAction(WaypointAction(WaypointActionType.START_TAKE_PHOTO, 0))
+                    waypoint.addAction(WaypointAction(WaypointActionType.GIMBAL_PITCH, -90)) // 짐벌을 아래로 향하게 함
                 }
             }
             setResultToToast("Set Waypoint parameters successfully")

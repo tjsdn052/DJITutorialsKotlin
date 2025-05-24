@@ -1,7 +1,9 @@
 package com.riis.fpv
 
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.TextureView
 import android.view.View
 import android.widget.Button
@@ -13,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import dji.common.camera.SettingsDefinitions.CameraMode
 import dji.common.camera.SettingsDefinitions.ShootPhotoMode
 import dji.common.product.Model
+import dji.common.util.CommonCallbacks
 import dji.sdk.base.BaseProduct
 import dji.sdk.camera.Camera
 import dji.sdk.camera.VideoFeeder
@@ -20,7 +23,24 @@ import dji.sdk.codec.DJICodecManager
 import dji.sdk.products.Aircraft
 import dji.sdk.products.HandHeld
 import dji.sdk.sdkmanager.DJISDKManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /*
 This activity provides an interface to access a connected DJI Product's camera and use
@@ -41,6 +61,18 @@ class MainActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, Vi
     private lateinit var recordVideoModeBtn: Button
     private lateinit var recordBtn: ToggleButton
     private lateinit var recordingTime: TextView
+
+    // 오버레이 텍스트 뷰
+    private lateinit var latitudeTextView: TextView
+    private lateinit var longitudeTextView: TextView
+    private lateinit var altitudeTextView: TextView
+
+    private val ACCESS_KEY = "test1234" // 실제 Access Key로 변경해주세요.
+
+    // 드론 현재 위치 저장 변수
+    private var currentDroneLatitude: Double = 0.0
+    private var currentDroneLongitude: Double = 0.0
+    private var currentDroneAltitude: Double = 0.0
 
 
     //Creating the Activity
@@ -96,6 +128,34 @@ class MainActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, Vi
                 }
             }
         }
+
+        // 드론의 비행 컨트롤러로부터 GPS 데이터 수신
+        val aircraft = getProductInstance() as? Aircraft
+        aircraft?.flightController?.setStateCallback { flightControllerState ->
+            val location = flightControllerState.aircraftLocation
+            val altitude = location?.altitude ?: 0.0
+
+            runOnUiThread {
+                if (location != null && location.latitude != -1.0 && location.longitude != -1.0) {
+                    currentDroneLatitude = location.latitude // 현재 위도 저장
+                    currentDroneLongitude = location.longitude // 현재 경도 저장
+                    currentDroneAltitude = altitude.toDouble() // 현재 고도 저장 (Float to Double)
+
+                    // 명시적으로 Double로 캐스팅
+                    latitudeTextView.text = getString(R.string.latitude_label, location.latitude as Double)
+                    longitudeTextView.text = getString(R.string.longitude_label, location.longitude as Double)
+                } else {
+                    currentDroneLatitude = 0.0 // 위치 정보 없을 시 기본값
+                    currentDroneLongitude = 0.0
+                    currentDroneAltitude = 0.0
+
+                    latitudeTextView.text = getString(R.string.latitude_label, 0.0)
+                    longitudeTextView.text = getString(R.string.longitude_label, 0.0)
+                }
+                // 명시적으로 Double로 캐스팅
+                altitudeTextView.text = getString(R.string.altitude_label, altitude.toDouble())
+            }
+        }
     }
 
     //Function to initialize the activity's UI elements
@@ -107,6 +167,11 @@ class MainActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, Vi
         recordBtn = findViewById(R.id.btn_record)
         shootPhotoModeBtn = findViewById(R.id.btn_shoot_photo_mode)
         recordVideoModeBtn = findViewById(R.id.btn_record_video_mode)
+
+        // 오버레이 텍스트 뷰 초기화
+        latitudeTextView = findViewById(R.id.latitude_text_view)
+        longitudeTextView = findViewById(R.id.longitude_text_view)
+        altitudeTextView = findViewById(R.id.altitude_text_view)
 
         /*
         Giving videoSurface a listener that checks for when a surface texture is available.
@@ -195,7 +260,15 @@ class MainActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, Vi
 
     //Function that uninitializes the display for the videoSurface TextureView
     private fun uninitPreviewer() {
-        val camera: Camera = getCameraInstance() ?: return
+        // This method is called in onPause and onDestroy, ensure resources are released.
+        // For video preview, clearing the listener is often sufficient.
+        if (VideoFeeder.getInstance().primaryVideoFeed.listeners.contains(receivedVideoDataListener)) {
+            receivedVideoDataListener?.let {
+                VideoFeeder.getInstance().primaryVideoFeed.removeVideoDataListener(it)
+            }
+        }
+        codecManager?.cleanSurface()
+        codecManager = null
     }
 
     //Function that displays toast messages to the user
@@ -246,7 +319,8 @@ class MainActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, Vi
         when(v?.id) {
             //If the capture button is pressed, take a photo with the DJI product's camera
             R.id.btn_capture -> {
-                captureAction()
+                takeScreenshotAndUpload() // 캡쳐 및 업로드 함수 호출
+                sendWaypointData(currentDroneLatitude, currentDroneLongitude, currentDroneAltitude) // 드론 위치 전송 함수 호출
             }
             //If the shoot photo mode button is pressed, set camera to only take photos
             R.id.btn_shoot_photo_mode -> {
@@ -260,46 +334,186 @@ class MainActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, Vi
         }
     }
 
-    //Function for taking a a single photo using the DJI Product's camera
-    private fun captureAction() {
-        val camera: Camera = getCameraInstance() ?: return
-
-        /*
-        Setting the camera capture mode to SINGLE, and then taking a photo using the camera.
-        If the resulting callback for each operation returns an error that is null, then the
-        two operations are successful.
-        */
-        val photoMode = ShootPhotoMode.SINGLE
-        camera.setShootPhotoMode(photoMode) { djiError ->
-            if (djiError == null) {
-                lifecycleScope.launch {
-                    camera.startShootPhoto { djiErrorSecond ->
-                        if (djiErrorSecond == null) {
-                            showToast("take photo: success")
-                        } else {
-                            showToast("Take Photo Failure: ${djiError?.description}")
-                        }
+    // Function to take a screenshot and upload it
+    private fun takeScreenshotAndUpload() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val bitmap = videoSurface.bitmap // Get bitmap from TextureView
+            if (bitmap != null) {
+                // 1. 공용 저장소에 저장
+                val publicFileUri = saveBitmapToPublicStorage(bitmap)
+                if (publicFileUri != null) {
+                    withContext(Dispatchers.Main) {
+                        showToast("스크린샷이 갤러리에 저장되었습니다.")
                     }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        showToast("스크린샷 갤러리 저장 실패.")
+                    }
+                }
+
+                // 2. 임시 파일 생성 후 S3 업로드
+                val tempFile = createTempFileForUpload(bitmap)
+                if (tempFile != null) {
+                    uploadFile(tempFile)
+                } else {
+                    withContext(Dispatchers.Main) {
+                        showToast("업로드용 임시 파일 생성 실패.")
+                    }
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    showToast("비디오 화면에서 비트맵을 가져올 수 없습니다.")
                 }
             }
         }
     }
 
-    /*
-    Function for setting the camera mode. If the resulting callback returns an error that
-    is null, then the operation was successful.
-    */
+    // 비트맵을 공용 저장소(Pictures 폴더)에 저장하는 함수
+    private fun saveBitmapToPublicStorage(bitmap: Bitmap): String? {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val filename = "DRONE_SCREENSHOT_$timestamp.png"
+        var fos: OutputStream? = null
+        var imageUri: String? = null
+
+        try {
+            val contentValues = android.content.ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/DJIFPV") // Pictures/DJIFPV 폴더에 저장
+            }
+
+            val resolver = contentResolver
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                fos = resolver.openOutputStream(uri)
+                if (fos != null) {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
+                    imageUri = uri.toString()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            fos?.close()
+        }
+        return imageUri
+    }
+
+    // S3 업로드용 임시 파일을 생성하는 함수
+    private fun createTempFileForUpload(bitmap: Bitmap): File? {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss_temp", Locale.getDefault()).format(Date())
+        val filename = "SCREENSHOT_$timestamp.png"
+        val directory = cacheDir // 앱의 캐시 디렉터리에 임시 저장
+        val file = File(directory, filename)
+
+        return try {
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            file
+        } catch (e: IOException) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+
+    // Function to upload the file to the server
+    private suspend fun uploadFile(file: File) {
+        val client = OkHttpClient()
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("accessKey", ACCESS_KEY)
+            .addFormDataPart("file", file.name, file.asRequestBody("image/png".toMediaTypeOrNull()))
+            .build()
+
+        val request = Request.Builder()
+            .url("http://117.17.189.176:3000/upload/file") // HTTPS 미적용 상태이므로 HTTP 사용
+            .post(requestBody)
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string()
+
+            withContext(Dispatchers.Main) {
+                if (response.isSuccessful) {
+                    val jsonResponse = responseBody?.let { JSONObject(it) }
+                    val fileUrl = jsonResponse?.getString("file_url")
+                    showToast("업로드 성공: $fileUrl")
+                } else {
+                    val errorMessage = try {
+                        responseBody?.let { JSONObject(it).getString("message") } ?: "알 수 없는 오류"
+                    } catch (e: Exception) {
+                        "알 수 없는 오류"
+                    }
+                    showToast("업로드 실패: ${response.code} - $errorMessage")
+                }
+            }
+        } catch (e: IOException) {
+            withContext(Dispatchers.Main) {
+                showToast("네트워크 오류: ${e.message}")
+            }
+            e.printStackTrace()
+        } finally {
+            file.delete() // 업로드 시도 후 임시 파일 삭제
+        }
+    }
+
+    // Function to send drone waypoint data
+    private fun sendWaypointData(latitude: Double, longitude: Double, altitude: Double) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val client = OkHttpClient()
+            val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+
+            val jsonBody = JSONObject().apply {
+                put("latitude", latitude)
+                put("longitude", longitude)
+                put("altitude", altitude)
+            }.toString()
+
+            val requestBody = jsonBody.toRequestBody(jsonMediaType)
+
+            val request = Request.Builder()
+                .url("http://3.37.127.247:8080/waypoint")
+                .post(requestBody)
+                .build()
+
+            try {
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string()
+
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccessful) {
+                        showToast("드론 위치 전송 성공: $jsonBody")
+                    } else {
+                        val errorMessage = responseBody ?: "알 수 없는 오류"
+                        showToast("드론 위치 전송 실패: ${response.code} - $errorMessage")
+                    }
+                }
+            } catch (e: IOException) {
+                withContext(Dispatchers.Main) {
+                    showToast("드론 위치 전송 네트워크 오류: ${e.message}")
+                }
+                e.printStackTrace()
+            }
+        }
+    }
+
+    //Function for setting the camera mode. If the resulting callback returns an error that
+    //is null, then the operation was successful.
     private fun switchCameraMode(cameraMode: CameraMode) {
         val camera: Camera = getCameraInstance() ?: return
 
-        camera.setMode(cameraMode) { error ->
-            if (error == null) {
-                showToast("Switch Camera Mode Succeeded")
-            } else {
-                showToast("Switch Camera Error: ${error.description}")
+        camera.setMode(cameraMode, object : CommonCallbacks.CompletionCallback<dji.common.error.DJIError> {
+            override fun onResult(error: dji.common.error.DJIError?) {
+                if (error == null) {
+                    showToast("카메라 모드 전환 성공")
+                } else {
+                    showToast("카메라 모드 전환 오류: ${error.description}")
+                }
             }
-        }
-
+        })
     }
 
     /*

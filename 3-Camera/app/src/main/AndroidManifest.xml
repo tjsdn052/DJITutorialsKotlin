@@ -20,6 +20,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus" />
@@ -37,9 +38,9 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DJIFPVKotlin">
+        android:theme="@style/Theme.DJIFPVKotlin"
+        android:requestLegacyExternalStorage="true">
 
-        <!-- DJI SDK -->
         <uses-library android:name="com.android.future.usb.accessory" />
         <uses-library
             android:name="org.apache.http.legacy"
@@ -47,16 +48,13 @@
         <meta-data
             android:name="com.dji.sdk.API_KEY"
             android:value="dbe95761ede849ad17d0f952" />
-        <!-- DJI SDK -->
-
         <activity android:name="com.riis.fpv.ConnectionActivity"
             android:screenOrientation="portrait"
             android:launchMode="singleTop"
-            android:configChanges="orientation">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            android:configChanges="orientation|keyboardHidden|screenSize"> <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -72,7 +70,7 @@
         </activity>
 
         <activity android:name="com.riis.fpv.MainActivity"
-            android:screenOrientation="userLandscape"/>
-    </application>
+            android:screenOrientation="userLandscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"/> </application>
 
 </manifest>

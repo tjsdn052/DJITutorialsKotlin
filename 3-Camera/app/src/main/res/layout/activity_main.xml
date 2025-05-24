@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -24,7 +25,7 @@
             android:layout_weight="1"
             android:layout_gravity="center_vertical"
             android:layout_height="wrap_content"
-            android:text="Capture"
+            android:text="@string/capture_button"
             android:textSize="12sp"/>
 
         <ToggleButton
@@ -61,7 +62,6 @@
     <TextView
         android:id="@+id/timer"
         android:layout_width="150dp"
-        android:layout_weight="1"
         android:layout_height="wrap_content"
         android:layout_gravity="center_vertical"
         android:layout_marginTop="23dp"
@@ -69,5 +69,38 @@
         android:textColor="#ffffff"
         android:layout_alignTop="@+id/video_previewer_surface"
         android:layout_centerHorizontal="true" />
+
+    <LinearLayout
+        android:id="@+id/overlay_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:orientation="vertical"
+        android:background="@color/overlay_background"
+        android:padding="8dp"
+        android:layout_margin="8dp">
+
+        <TextView
+            android:id="@+id/latitude_text_view"
+            style="@style/overlay_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/latitude_label" />
+
+        <TextView
+            android:id="@+id/longitude_text_view"
+            style="@style/overlay_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/longitude_label" />
+
+        <TextView
+            android:id="@+id/altitude_text_view"
+            style="@style/overlay_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/altitude_label" />
+    </LinearLayout>
 
 </RelativeLayout>
