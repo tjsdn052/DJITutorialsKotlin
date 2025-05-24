@@ -129,10 +129,10 @@ class Waypoint2Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
                     homeLng = state.homeLocation.longitude
                 })
                 rtk?.setStateCallback(RTKState.Callback { state ->
-                    aircraftLat = state.fusionMobileStationLocation.latitude
-                    aircraftLng = state.fusionMobileStationLocation.longitude
+                    aircraftLat = state.fusionMobileStationLocation.latitude //위도
+                    aircraftLng = state.fusionMobileStationLocation.longitude //경도
                     droneHeading = state.fusionHeading
-                    droneHeight = state.fusionMobileStationAltitude
+                    droneHeight = state.fusionMobileStationAltitude //고도
                     updateDroneLocation()
                 })
             }

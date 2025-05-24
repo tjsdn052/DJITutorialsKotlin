@@ -1,3 +1,4 @@
+// File: com/riis/gsdemo_kotlin/MavicMiniMissionOperator.kt
 package com.riis.gsdemo_kotlin
 import android.annotation.SuppressLint
 import android.content.Context
@@ -33,6 +34,21 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
+import dji.common.gimbal.GimbalState
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val TAG = "MMMissionOperator"
 
@@ -46,6 +62,11 @@ class MavicMiniMissionOperator(context: Context) {
     private val activity: AppCompatActivity
     private val mContext = context
     private var gimbalObserver: Observer<Float>? = null
+    private var currentDroneLatitude: Double = 0.0
+    private var currentDroneLongitude: Double = 0.0
+    private var currentDroneAltitude: Double = 0.0
+    private var currentDroneHeading: Float = 0f
+
 
     private var state: MissionState = WaypointMissionState.INITIAL_PHASE
     private lateinit var mission: WaypointMission
@@ -97,44 +118,116 @@ class MavicMiniMissionOperator(context: Context) {
             //setting the drone's flight coordinate system
             flightController.rollPitchCoordinateSystem = FlightCoordinateSystem.GROUND
 
-
+            flightController.setStateCallback { flightControllerState ->
+                currentDroneLatitude = flightControllerState.aircraftLocation.latitude
+                currentDroneLongitude = flightControllerState.aircraftLocation.longitude
+                currentDroneAltitude = flightControllerState.aircraftLocation.altitude.toDouble()
+                currentDroneHeading = flightControllerState.aircraftHeadDirection.toFloat()
+                droneLocationMutableLiveData.postValue(flightControllerState.aircraftLocation)
+            }
         }
     }
 
     private fun initGimbalListener() {
-        DJIDemoApplication.getGimbal()?.setStateCallback { gimbalState ->
+        DJIDemoApplication.getGimbal()?.setStateCallback { gimbalState: GimbalState ->
             currentGimbalPitch = gimbalState.attitudeInDegrees.pitch
             gimbalPitchLiveData.postValue(currentGimbalPitch)
         }
     }
 
-    //Function for taking a a single photo using the DJI Product's camera
-    private fun takePhoto(): Boolean {
-        val camera: Camera = getCameraInstance() ?: return false
+    // Function for taking a single photo and uploading it along with location
+    private fun captureScreenAndUpload() {
+        val camera = getCameraInstance()
+        if (camera == null) {
+            showToast(mContext, "카메라에 연결할 수 없습니다.")
+            return
+        }
 
-        // Setting the camera capture mode to SINGLE, and then taking a photo using the camera.
-        // If the resulting callback for each operation returns an error that is null, then the two operations are successful.
-        val photoMode = SettingsDefinitions.ShootPhotoMode.SINGLE
-
-//        pauseMission()
-
-        camera.setShootPhotoMode(photoMode) { djiError ->
+        camera.setShootPhotoMode(SettingsDefinitions.ShootPhotoMode.SINGLE) { djiError ->
             if (djiError == null) {
                 camera.startShootPhoto { djiErrorSecond ->
                     if (djiErrorSecond == null) {
-                        Log.d(TAG, "take photo: success")
-                        showToast(mContext, "take photo: success")
-                        this.state = WaypointMissionState.EXECUTING
-                        this.photoIsSuccess = true
+                        Log.d(TAG, "사진 촬영 성공!")
+                        showToast(mContext, "사진 촬영 성공!")
+                        photoIsSuccess = true
+
+                        activity.lifecycleScope.launch(Dispatchers.IO) {
+                            withContext(Dispatchers.Main) {
+                                showToast(mContext, "사진 및 위치 전송 시도...")
+                            }
+                            sendWaypointAndPhotoToServer()
+                        }
+
                     } else {
-                        Log.d(TAG, "Take Photo Failure: ${djiError?.description}")
-                        this.state = WaypointMissionState.EXECUTION_PAUSED
-                        this.photoIsSuccess = false
+                        Log.d(TAG, "사진 촬영 실패: ${djiErrorSecond.description}")
+                        showToast(mContext, "사진 촬영 실패: ${djiErrorSecond.description}")
+                        photoIsSuccess = false
                     }
                 }
+            } else {
+                Log.d(TAG, "카메라 모드 설정 실패: ${djiError.description}")
+                showToast(mContext, "카메라 모드 설정 실패: ${djiError.description}")
             }
         }
-        return this.photoIsSuccess
+    }
+
+    private suspend fun sendWaypointAndPhotoToServer() {
+        // GPS 정보 전송
+        val lat = currentDroneLatitude
+        val lng = currentDroneLongitude
+        val alt = currentDroneAltitude
+        val heading = currentDroneHeading
+
+        if (lat == 0.0 && lng == 0.0) {
+            withContext(Dispatchers.Main) {
+                showToast(mContext, "위치 정보를 전송할 수 없습니다. GPS를 확인해주세요.")
+            }
+            return
+        }
+
+        if (lat.isNaN() || lng.isNaN() || alt.isNaN() || heading.isNaN()) {
+            withContext(Dispatchers.Main) {
+                showToast(mContext, "유효하지 않은 위치 정보입니다. GPS를 확인해주세요.")
+            }
+            return
+        }
+
+        try {
+            val client = OkHttpClient()
+            val json = JSONObject().apply {
+                put("latitude", lat)
+                put("longitude", lng)
+                put("altitude", alt)
+                put("sequence", waypointTracker) // 현재 웨이포인트 인덱스를 시퀀스로 사용
+                put("heading", heading)
+            }
+
+            val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("http://3.37.127.247:8080/waypoint")
+                .post(requestBody)
+                .addHeader("accept", "/")
+                .addHeader("Content-Type", "application/json")
+                .build()
+
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string()
+
+            withContext(Dispatchers.Main) {
+                if (response.isSuccessful) {
+                    showToast(mContext, "GPS 위치 전송 성공!")
+                } else {
+                    val errorMessage = responseBody ?: "알 수 없는 오류"
+                    showToast(mContext, "GPS 위치 전송 실패: ${response.code} - $errorMessage")
+                }
+            }
+        } catch (e: IOException) {
+            withContext(Dispatchers.Main) {
+                showToast(mContext, "GPS 위치 전송 네트워크 오류: ${e.message}")
+            }
+            e.printStackTrace()
+        }
     }
 
 
@@ -259,124 +352,125 @@ class MavicMiniMissionOperator(context: Context) {
         }
     }
 
-    private val locationObserver = Observer { currentLocation: LocationCoordinate3D ->
+    private val locationObserver = Observer<LocationCoordinate3D> { currentLocation ->
         //observing changes to the drone's location coordinates
-            state = WaypointMissionState.EXECUTING
+        state = WaypointMissionState.EXECUTING
 
-            distanceToWaypoint = distanceInMeters(
-                LocationCoordinate2D(
-                    currentWaypoint.coordinate.latitude,
-                    currentWaypoint.coordinate.longitude,
+        distanceToWaypoint = distanceInMeters(
+            LocationCoordinate2D(
+                currentWaypoint.coordinate.latitude,
+                currentWaypoint.coordinate.longitude,
 
-                    ),
-                LocationCoordinate2D(
-                    currentLocation.latitude,
-                    currentLocation.longitude
-                )
+                ),
+            LocationCoordinate2D(
+                currentLocation.latitude,
+                currentLocation.longitude
             )
-            if (!isLanded && !isLanding) {
-                //If the drone has arrived at the destination, take a photo.
-                if (!photoTakenToggle && (distanceToWaypoint < 1.5)) {//if you haven't taken a photo
-                    photoTakenToggle = takePhoto()
-                    Log.d(
-                        TAG,
-                        "attempting to take photo: $photoTakenToggle, $photoIsSuccess"
-                    )
-                } else if (photoTakenToggle && (distanceToWaypoint >= 1.5)) {
-                    photoTakenToggle = false
-                    photoIsSuccess = false
-                }
-            }
-
-            val longitudeDiff =
-                currentWaypoint.coordinate.longitude - currentLocation.longitude
-            val latitudeDiff =
-                currentWaypoint.coordinate.latitude - currentLocation.latitude
-
-            if (abs(latitudeDiff) > originalLatitudeDiff) {
-                originalLatitudeDiff = abs(latitudeDiff)
-            }
-
-            if (abs(longitudeDiff) > originalLongitudeDiff) {
-                originalLongitudeDiff = abs(longitudeDiff)
-            }
-
-            //terminating the sendDataTimer and creating a new one
-            sendDataTimer.cancel()
-            sendDataTimer = Timer()
-
-            if (!travelledLongitude) {//!travelledLongitude
-                val speed = kotlin.math.max(
-                    (mission.autoFlightSpeed * (abs(longitudeDiff) / (originalLongitudeDiff))).toFloat(),
-                    0.5f
+        )
+        if (!isLanded && !isLanding) {
+            //If the drone has arrived at the destination, take a photo and send location.
+            if (!photoTakenToggle && (distanceToWaypoint < 1.5)) {//if you haven't taken a photo
+                captureScreenAndUpload() // 사진 촬영 및 위치 전송
+                photoTakenToggle = true
+                Log.d(
+                    TAG,
+                    "attempting to take photo: $photoTakenToggle, $photoIsSuccess"
                 )
-
-                directions.pitch = if (longitudeDiff > 0) speed else -speed
-
+            } else if (photoTakenToggle && (distanceToWaypoint >= 1.5)) {
+                photoTakenToggle = false
+                photoIsSuccess = false
             }
+        }
 
-            if (!travelledLatitude) {
-                val speed = kotlin.math.max(
-                    (mission.autoFlightSpeed * (abs(latitudeDiff) / (originalLatitudeDiff))).toFloat(),
-                    0.5f
-                )
+        val longitudeDiff =
+            currentWaypoint.coordinate.longitude - currentLocation.longitude
+        val latitudeDiff =
+            currentWaypoint.coordinate.latitude - currentLocation.latitude
 
-                directions.roll = if (latitudeDiff > 0) speed else -speed
+        if (abs(latitudeDiff) > originalLatitudeDiff) {
+            originalLatitudeDiff = abs(latitudeDiff)
+        }
 
-            }
+        if (abs(longitudeDiff) > originalLongitudeDiff) {
+            originalLongitudeDiff = abs(longitudeDiff)
+        }
 
-            //when the longitude difference becomes insignificant:
-            if (abs(longitudeDiff) < 0.000002) {
-                Log.i(TAG, "finished travelling LONGITUDE")
-                directions.pitch = 0f
-                travelledLongitude = true
-            }
+        //terminating the sendDataTimer and creating a new one
+        sendDataTimer.cancel()
+        sendDataTimer = Timer()
+
+        if (!travelledLongitude) {//!travelledLongitude
+            val speed = kotlin.math.max(
+                (mission.autoFlightSpeed * (abs(longitudeDiff) / (originalLongitudeDiff))).toFloat(),
+                0.5f
+            )
+
+            directions.pitch = if (longitudeDiff > 0) speed else -speed
+
+        }
+
+        if (!travelledLatitude) {
+            val speed = kotlin.math.max(
+                (mission.autoFlightSpeed * (abs(latitudeDiff) / (originalLatitudeDiff))).toFloat(),
+                0.5f
+            )
+
+            directions.roll = if (latitudeDiff > 0) speed else -speed
+
+        }
+
+        //when the longitude difference becomes insignificant:
+        if (abs(longitudeDiff) < 0.000002) {
+            Log.i(TAG, "finished travelling LONGITUDE")
+            directions.pitch = 0f
+            travelledLongitude = true
+        }
 
 
-            if (abs(latitudeDiff) < 0.000002) {
-                Log.i(TAG, "finished travelling LATITUDE")
-                directions.roll = 0f
-                travelledLatitude = true
-            }
+        if (abs(latitudeDiff) < 0.000002) {
+            Log.i(TAG, "finished travelling LATITUDE")
+            directions.roll = 0f
+            travelledLatitude = true
+        }
 
-            //when the latitude difference becomes insignificant and there
-            //... is no longitude difference (current waypoint has been reached):
-            if (travelledLatitude && travelledLongitude) {
-                //move to the next waypoint in the waypoints list
-                waypointTracker++
-                if (waypointTracker < waypoints.size) {
-                    currentWaypoint = waypoints[waypointTracker]
-                    originalLatitudeDiff = -1.0
-                    originalLongitudeDiff = -1.0
-                    travelledLongitude = false
-                    travelledLatitude = false
-                    directions = Direction()
-                } else { //If all waypoints have been reached, stop the mission
-                    state = WaypointMissionState.EXECUTION_STOPPING
-                    operatorListener?.onExecutionFinish(null)
-                    stopMission(null)
-                    isLanding = true
-                    sendDataTimer.cancel()
-                    if (isLanding && currentLocation.altitude == 0f) {
-                        if (!isLanded) {
-                            sendDataTimer.cancel()
-                            isLanded = true
-                        }
-
+        //when the latitude difference becomes insignificant and there
+        //... is no longitude difference (current waypoint has been reached):
+        if (travelledLatitude && travelledLongitude) {
+            //move to the next waypoint in the waypoints list
+            waypointTracker++
+            if (waypointTracker < waypoints.size) {
+                currentWaypoint = waypoints[waypointTracker]
+                originalLatitudeDiff = -1.0
+                originalLongitudeDiff = -1.0
+                travelledLongitude = false
+                travelledLatitude = false
+                directions = Direction()
+            } else { //If all waypoints have been reached, stop the mission
+                state = WaypointMissionState.EXECUTION_STOPPING
+                operatorListener?.onExecutionFinish(null)
+                stopMission(null)
+                isLanding = true
+                sendDataTimer.cancel()
+                if (isLanding && currentLocation.altitude == 0f) {
+                    if (!isLanded) {
+                        sendDataTimer.cancel()
+                        isLanded = true
                     }
-                    removeObserver()
-                }
-                sendDataTimer.cancel() //cancel all scheduled data tasks
-            } else {
-                // checking for pause state
-                if (state == WaypointMissionState.EXECUTING) {
-                    directions.altitude = currentWaypoint.altitude
-                } else if (state == WaypointMissionState.EXECUTION_PAUSED) {
-                    directions = Direction(0f, 0f, 0f, currentWaypoint.altitude)
-                }
-                move(directions)
 
+                }
+                removeObserver()
             }
+            sendDataTimer.cancel() //cancel all scheduled data tasks
+        } else {
+            // checking for pause state
+            if (state == WaypointMissionState.EXECUTING) {
+                directions.altitude = currentWaypoint.altitude
+            } else if (state == WaypointMissionState.EXECUTION_PAUSED) {
+                directions = Direction(0f, 0f, 0f, currentWaypoint.altitude)
+            }
+            move(directions)
+
+        }
 
     }
 

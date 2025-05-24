@@ -6,6 +6,7 @@ import dji.sdk.flightcontroller.FlightController
 import dji.sdk.products.Aircraft
 import dji.sdk.products.HandHeld
 import dji.sdk.sdkmanager.DJISDKManager
+import dji.sdk.gimbal.Gimbal
 
 object DJIDemoApplication {
 
@@ -49,7 +50,7 @@ object DJIDemoApplication {
     fun isPlaybackAvailable(): Boolean {
         return isCameraModuleAvailable() && (getProductInstance()?.camera?.playbackManager != null)
     }
-    
+
     fun getGimbal(): Gimbal? {
         val product = getProductInstance() ?: return null
         if (product.isConnected) {

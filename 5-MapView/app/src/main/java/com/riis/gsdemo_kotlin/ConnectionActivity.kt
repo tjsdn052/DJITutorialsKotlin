@@ -11,24 +11,37 @@ import androidx.core.app.ActivityCompat
 import androidx.lifecycle.Observer
 import dji.sdk.sdkmanager.DJISDKManager
 
+/*
+This activity manages SDK registration and establishing a connection between the
+DJI product and the user's mobile phone.
+ */
 class ConnectionActivity : AppCompatActivity() {
+
+    //Class Variables
     private lateinit var mTextConnectionStatus: TextView
     private lateinit var mTextProduct: TextView
     private lateinit var mTextModelAvailable: TextView
     private lateinit var mBtnOpen: Button
     private lateinit var mVersionTv: TextView
 
-    private val model: ConnectionViewModel by viewModels() // this is all our data stored in the view model
+    private val model: ConnectionViewModel by viewModels() //linking the activity to a viewModel
 
-    companion object { // a tag for debugging
+    companion object {
         const val TAG = "ConnectionActivity"
     }
 
+    //Creating the Activity
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        //inflating the activity_connection.xml layout as the activity's view
         setContentView(R.layout.activity_connection)
 
-        ActivityCompat.requestPermissions(this, // request all the permissions that we'll need
+        /*
+        Request the following permissions defined in the AndroidManifest.
+        1 is the integer constant we chose to use when requesting app permissions
+        */
+        ActivityCompat.requestPermissions(this,
             arrayOf(
                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
                 Manifest.permission.VIBRATE,
@@ -42,47 +55,65 @@ class ConnectionActivity : AppCompatActivity() {
                 Manifest.permission.MOUNT_UNMOUNT_FILESYSTEMS,
                 Manifest.permission.READ_EXTERNAL_STORAGE,
                 Manifest.permission.SYSTEM_ALERT_WINDOW,
-                Manifest.permission.READ_PHONE_STATE
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION // 추가된 권한
             ), 1)
 
-        initUI() // initialize the UI
+        //Initialize the UI, register the app with DJI's mobile SDK, and set up the observers
+        initUI()
         model.registerApp()
         observers()
-
     }
 
-    private fun initUI() { // Initializes the UI with all the string values
+    //Function to initialize the activity's UI
+    private fun initUI() {
+
+        //referencing the layout views using their resource ids
         mTextConnectionStatus = findViewById(R.id.text_connection_status)
         mTextModelAvailable = findViewById(R.id.text_model_available)
         mTextProduct = findViewById(R.id.text_product_info)
         mBtnOpen = findViewById(R.id.btn_open)
         mVersionTv = findViewById(R.id.textView2)
+
+        //Getting the DJI SDK version and displaying it on mVersionTv TextView
         mVersionTv.text = resources.getString(R.string.sdk_version, DJISDKManager.getInstance().sdkVersion)
-        mBtnOpen.isEnabled = false
-        mBtnOpen.setOnClickListener { // navigate to the main activity
-            val intent = Intent(this, MainActivity::class.java)
+
+        mBtnOpen.isEnabled = false //mBtnOpen Button is initially disabled
+
+        //If mBtnOpen Button is clicked on, start CameraActivity (assuming this is the main drone control activity)
+        mBtnOpen.setOnClickListener {
+            val intent = Intent(this, CameraActivity::class.java) // Launch CameraActivity
             startActivity(intent)
         }
     }
 
+    //Function to setup observers
     private fun observers() {
-        model.connectionStatus.observe(this, Observer<Boolean> { isConnected -> // observe the connection status and enable the button on connection
+        //observer listens to changes to the connectionStatus variable stored in the viewModel
+        model.connectionStatus.observe(this, Observer<Boolean> { isConnected ->
+            //If boolean is True, enable mBtnOpen button. If false, disable the button.
             if (isConnected) {
                 mTextConnectionStatus.text = "Status: Connected"
                 mBtnOpen.isEnabled = true
             }
             else {
                 mTextConnectionStatus.text = "Status: Disconnected"
-                mBtnOpen.isEnabled = false
+                mBtnOpen.isEnabled = true // Keeping this enabled for testing purposes even if disconnected
             }
         })
 
-        model.product.observe(this, Observer { baseProduct -> // observe the product and populate the appropriate text fields
+        /*
+        Observer listens to changes to the product variable stored in the viewModel.
+        product is a BaseProduct object and represents the DJI product connected to the mobile device
+        */
+        model.product.observe(this, Observer { baseProduct ->
+            //if baseProduct is connected to the mobile device, display its firmware version and model name.
             if (baseProduct != null && baseProduct.isConnected) {
                 mTextModelAvailable.text = baseProduct.firmwarePackageVersion
+
+                //name of the aircraft attached to the remote controller
                 mTextProduct.text = baseProduct.model.displayName
             }
-
         })
     }
 }

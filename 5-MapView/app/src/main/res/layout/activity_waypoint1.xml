@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -5,22 +6,36 @@
     android:orientation="vertical"
     android:background="#FFFFFF"
     xmlns:mapbox="http://schemas.android.com/apk/res-auto"
-    tools:context=".MainActivity">
+    tools:context=".Waypoint1Activity">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="vertical"
+        android:padding="8dp">
         <TextView
-            android:id="@+id/ConnectStatusTextView"
+            android:id="@+id/droneLatTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="GSDemo"
-            android:gravity="center"
+            android:text="Latitude: N/A"
             android:textColor="#000000"
-            android:textSize="21sp"
-            />
+            android:textSize="16sp" />
+        <TextView
+            android:id="@+id/droneLngTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Longitude: N/A"
+            android:textColor="#000000"
+            android:textSize="16sp" />
+        <TextView
+            android:id="@+id/droneAltTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Altitude: N/A"
+            android:textColor="#000000"
+            android:textSize="16sp" />
     </LinearLayout>
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -73,6 +88,55 @@
             android:layout_height="wrap_content"
             android:text="Stop"
             android:layout_weight="1"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+        <Button
+            android:id="@+id/send_location_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="위치 전송"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="8dp">
+        <EditText
+            android:id="@+id/inputLat"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Latitude"
+            android:inputType="numberDecimal"
+            android:maxLength="10"
+            android:singleLine="true"/>
+        <EditText
+            android:id="@+id/inputLng"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Longitude"
+            android:inputType="numberDecimal"
+            android:maxLength="11"
+            android:singleLine="true"/>
+        <EditText
+            android:id="@+id/inputAlt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Altitude"
+            android:inputType="numberDecimal"
+            android:maxLength="5"
+            android:singleLine="true"/>
+        <Button
+            android:id="@+id/addWaypointManual"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Add Waypoint Manually"/>
     </LinearLayout>
 
     <fragment
