@@ -23,13 +23,14 @@ import dji.sdk.mission.waypoint.WaypointMissionOperatorListener
 import java.util.concurrent.ConcurrentHashMap
 
 import dji.common.model.LocationCoordinate2D
-import dji.common.flightcontroller.simulator.InitializationData
-import dji.sdk.sdkmanager.DJISDKManager
+import dji.common.flightcontroller.simulator.InitializationData // Not used in current context
+// import dji.sdk.sdkmanager.DJISDKManager // Not used in current context, commented out to avoid warning if truly unused
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -37,6 +38,8 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 
 class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnMapReadyCallback, View.OnClickListener {
@@ -49,6 +52,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     private lateinit var start: Button
     private lateinit var stop: Button
     private lateinit var sendLocationButton: Button
+    private lateinit var getWaypointsBtn: Button
 
     // New UI elements for manual waypoint input
     private lateinit var inputLat: EditText
@@ -75,14 +79,14 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     private var droneLocationLng: Double = 15.0
     private var droneLocationAlt: Float = 0.0f
     private var droneMarker: Marker? = null
-    private val markers: MutableMap<Int, Marker> = ConcurrentHashMap<Int, Marker>()
+    private val markers: MutableMap<Int, Marker> = ConcurrentHashMap<Int, Marker>() // Key: waypoint index
     private var mapboxMap: MapboxMap? = null
     private var mavicMiniMissionOperator: MavicMiniMissionOperator? = null
 
-//    private val SIMULATED_DRONE_LAT = 42.557965 // 시뮬레이터 사용 시 주석 해제
-//    private val SIMULATED_DRONE_LONG = -83.154303 // 시뮬레이터 사용 시 주석 해제
+//    private val SIMULATED_DRONE_LAT = 36.762556
+//    private val SIMULATED_DRONE_LONG = -127.281789
 
-    private var altitude = 100f
+    private var altitude = 100f // Default altitude for UI-added waypoints
     private var speed = 10f
 
     private val waypointList = mutableListOf<Waypoint>()
@@ -106,27 +110,26 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     override fun onMapReady(mapboxMap: MapboxMap) {
         this.mapboxMap = mapboxMap
         mapboxMap.addOnMapClickListener(this)
-        mapboxMap.setStyle(Style.MAPBOX_STREETS, object : Style.OnStyleLoaded {
-            override fun onStyleLoaded(style: Style) {
-                Log.d(TAG, "Mapbox style loaded successfully.")
-                val fixedLatLng = LatLng(37.5665, 126.9780) // 예: 서울 시청
-                mapboxMap.moveCamera(CameraUpdateFactory.newLatLngZoom(fixedLatLng, 15.0))
-                if (!style.isFullyLoaded) {
-                    Log.w(TAG, "Style is not fully loaded even if onStyleLoaded was called.")
-                }
+        mapboxMap.setStyle(Style.MAPBOX_STREETS) { style ->
+            Log.d(TAG, "Mapbox style loaded successfully.")
+            val fixedLatLng = LatLng(37.5665, 126.9780) // Example: Seoul City Hall
+            mapboxMap.moveCamera(CameraUpdateFactory.newLatLngZoom(fixedLatLng, 15.0))
+            if (!style.isFullyLoaded) {
+                Log.w(TAG, "Style is not fully loaded even if onStyleLoaded was called.")
             }
-        })
+        }
     }
 
     override fun onMapClick(point: LatLng): Boolean {
         if (isAdd) {
-            // Use the current 'altitude' value for the waypoint added by map click
-            // 마커에 순서(markers.size)를 함께 전달
-            markWaypoint(point, altitude.toDouble(), markers.size)
-            // Waypoint 객체를 생성할 때, 'altitude'는 해당 웨이포인트의 고도로 설정합니다.
-            // 전체 미션 고도가 아닌 개별 웨이포인트의 고도를 사용합니다.
-            val waypoint = Waypoint(point.latitude, point.longitude, altitude)
+            // Use the current 'altitude' (default altitude from settings) for the waypoint added by map click
+            // The index for the new waypoint will be the current size of the waypointList
+            markWaypoint(point, altitude.toDouble(), waypointList.size) // Heading is not specified, will use null default
 
+            val waypoint = Waypoint(point.latitude, point.longitude, altitude)
+            // Note: waypoint.heading will be 0 by default.
+            // If headingMode is USING_WAYPOINT_HEADING, you might want to set a specific heading here,
+            // or rely on the aircraft to maintain current heading or orient to next waypoint based on other modes.
 
             if (waypointMissionBuilder == null){
                 waypointMissionBuilder = WaypointMission.Builder().also { builder ->
@@ -145,17 +148,27 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         return true
     }
 
-    // Modified markWaypoint function to accept altitude and index for marker title/snippet
-    private fun markWaypoint(point: LatLng, alt: Double, index: Int) {
+    // Modified markWaypoint function to accept an optional heading and use index as key
+    private fun markWaypoint(point: LatLng, alt: Double, index: Int, heading: Int? = null) {
+        val title = String.format(Locale.US, "WP %d: Lat: %.6f, Lng: %.6f", index + 1, point.latitude, point.longitude)
+        val snippet: String = if (heading != null) {
+            String.format(Locale.US, "Alt: %.2fm, Hdg: %d°", alt, heading)
+        } else {
+            String.format(Locale.US, "Alt: %.2fm", alt)
+        }
+
         val markerOptions = MarkerOptions()
             .position(point)
-            .title(String.format(Locale.US, "Waypoint %d: Lat: %.6f, Lng: %.6f", index + 1, point.latitude, point.longitude)) // 순서 추가
-            .snippet(String.format(Locale.US, "Alt: %.3f m", alt))
+            .title(title)
+            .snippet(snippet)
         mapboxMap?.let {
+            // Remove old marker at this index if it exists, before adding a new one
+            markers[index]?.remove()
             val marker = it.addMarker(markerOptions)
-            markers[markers.size] = marker
+            markers[index] = marker // Store marker by its logical index
         }
     }
+
 
     override fun onResume() {
         super.onResume()
@@ -184,13 +197,13 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         start = findViewById(R.id.start)
         stop = findViewById(R.id.stop)
         sendLocationButton = findViewById(R.id.send_location_button)
+        getWaypointsBtn = findViewById(R.id.getWaypointsBtn)
 
-        // Initialize new TextViews
+
         droneLatTextView = findViewById(R.id.droneLatTextView)
         droneLngTextView = findViewById(R.id.droneLngTextView)
         droneAltTextView = findViewById(R.id.droneAltTextView)
 
-        // Initialize new UI elements for manual waypoint input
         inputLat = findViewById(R.id.inputLat)
         inputLng = findViewById(R.id.inputLng)
         inputAlt = findViewById(R.id.inputAlt)
@@ -205,6 +218,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         stop.setOnClickListener(this)
         sendLocationButton.setOnClickListener(this)
         addWaypointManual.setOnClickListener(this)
+        getWaypointsBtn.setOnClickListener(this)
     }
 
 
@@ -229,7 +243,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
 
                 runOnUiThread {
                     mavicMiniMissionOperator?.droneLocationMutableLiveData?.postValue(flightControllerState.aircraftLocation)
-                    updateDroneLocation() // This will also update the TextViews
+                    updateDroneLocation()
                 }
             }
         } ?: run {
@@ -245,7 +259,6 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
 
     @SuppressLint("SetTextI18n")
     private fun updateDroneLocation() {
-        // Update TextViews with current drone location
         runOnUiThread {
             droneLatTextView.text = String.format(Locale.US,"Latitude: %.6f", droneLocationLat)
             droneLngTextView.text = String.format(Locale.US,"Longitude: %.6f", droneLocationLng)
@@ -278,11 +291,12 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             }
             R.id.clear -> {
                 runOnUiThread {
-                    mapboxMap?.clear()
+                    mapboxMap?.clear() // Clears all markers, polylines, etc. from the map
+                    markers.clear()    // Clear our tracked markers
                 }
                 waypointList.clear()
                 waypointMissionBuilder?.waypointList(waypointList)?.waypointCount(waypointList.size)
-                markers.clear() // 마커도 함께 클리어
+                // markers.clear() // Already cleared above if mapboxMap?.clear() removes them. Explicitly clear our map.
                 setResultToToast("Waypoints cleared")
             }
             R.id.config -> {
@@ -303,9 +317,116 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             R.id.addWaypointManual -> {
                 addWaypointManually()
             }
+            R.id.getWaypointsBtn -> {
+                fetchWaypointsFromServer()
+            }
             else -> {}
         }
     }
+
+    private fun fetchWaypointsFromServer() {
+        val buildingId = "26" // Temporary buildingId, should be dynamic in a real app
+
+        if (buildingId.isBlank()) {
+            setResultToToast("Building ID가 필요합니다.")
+            return
+        }
+
+        setResultToToast("서버에서 웨이포인트 불러오는 중 (Building ID: $buildingId)...")
+        val serverUrl = "http://3.37.127.247:8080/waypoints$buildingId" // Note: Added a slash before $buildingId
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url(serverUrl)
+                    .build()
+                val response = client.newCall(request).execute()
+
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (responseBody != null) {
+                        Log.d(TAG, "서버 응답: $responseBody")
+                        val fetchedWaypoints = mutableListOf<Waypoint>()
+                        // Store LatLng, Altitude, and Heading for marker creation
+                        val fetchedMarkerData = mutableListOf<Triple<LatLng, Double, Int>>()
+
+                        val jsonArray = JSONArray(responseBody)
+                        for (i in 0 until jsonArray.length()) {
+                            val wpObject = jsonArray.getJSONObject(i)
+                            val lat = wpObject.optDouble("lat")
+                            val lng = wpObject.optDouble("lng")
+                            val alt = wpObject.optDouble("altitude").toFloat()
+                            // ** Get heading from server, default to 0 if not provided **
+                            val heading = wpObject.optInt("heading", 0) // DJI SDK heading: -180 to 180
+
+                            if (checkGpsCoordination(lat, lng)) {
+                                val waypoint = Waypoint(lat, lng, alt)
+                                // ** Set the heading for the Waypoint object **
+                                waypoint.heading = heading
+                                fetchedWaypoints.add(waypoint)
+                                fetchedMarkerData.add(Triple(LatLng(lat, lng), alt.toDouble(), heading))
+                            }
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            mapboxMap?.clear() // Clear existing markers from the map
+                            markers.clear()    // Clear our internal marker tracking
+                            waypointList.clear() // Clear the old list of waypoints
+
+                            waypointList.addAll(fetchedWaypoints)
+                            if (waypointMissionBuilder == null) {
+                                waypointMissionBuilder = WaypointMission.Builder()
+                            }
+                            waypointMissionBuilder?.waypointList(waypointList)?.waypointCount(waypointList.size)
+
+                            // Add new markers to the map
+                            fetchedMarkerData.forEachIndexed { index, data ->
+                                val latLng = data.first
+                                val markerAlt = data.second
+                                val markerHeading = data.third
+                                markWaypoint(latLng, markerAlt, index, markerHeading) // Pass heading to display in snippet
+                            }
+
+                            if (fetchedWaypoints.isNotEmpty()) {
+                                cameraUpdateToFirstWaypoint(fetchedWaypoints.first())
+                                setResultToToast("서버에서 웨이포인트 로드 완료: ${fetchedWaypoints.size}개")
+                                // Re-configure the mission with the new waypoints and current settings
+                                // This is important if USING_WAYPOINT_HEADING is active
+                                configWayPointMission()
+                            } else {
+                                setResultToToast("서버에서 유효한 웨이포인트를 받지 못했습니다.")
+                            }
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            setResultToToast("서버로부터 빈 응답을 받았습니다.")
+                        }
+                    }
+                } else {
+                    val errorBody = response.body?.string()
+                    withContext(Dispatchers.Main) {
+                        setResultToToast("웨이포인트 로드 실패: ${response.code} ${response.message}")
+                        Log.e(TAG, "서버 오류: ${response.code} ${response.message} - $errorBody")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "서버에서 웨이포인트 로드 중 오류 발생", e)
+                withContext(Dispatchers.Main) {
+                    setResultToToast("오류 발생: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun cameraUpdateToFirstWaypoint(firstWaypoint: Waypoint) {
+        if (mapboxMap == null) return
+        val pos = LatLng(firstWaypoint.coordinate.latitude, firstWaypoint.coordinate.longitude)
+        val zoomLevel = 18.0
+        val cameraUpdate = CameraUpdateFactory.newLatLngZoom(pos, zoomLevel)
+        mapboxMap?.animateCamera(cameraUpdate)
+    }
+
 
     private fun addWaypointManually() {
         val latStr = inputLat.text.toString()
@@ -320,7 +441,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         try {
             val latitude = latStr.toDouble()
             val longitude = lngStr.toDouble()
-            val altitude = altStr.toFloat()
+            val altitudeInput = altStr.toFloat() // User input altitude for this specific waypoint
 
             if (!checkGpsCoordination(latitude, longitude)) {
                 setResultToToast("Invalid GPS coordinates. Latitude must be between -90 and 90, Longitude between -180 and 180, and neither can be 0.")
@@ -328,10 +449,12 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             }
 
             val newPoint = LatLng(latitude, longitude)
-            // 마커에 순서(waypointList.size)를 함께 전달
-            markWaypoint(newPoint, altitude.toDouble(), waypointList.size) //
+            // Mark waypoint using its future index in waypointList
+            markWaypoint(newPoint, altitudeInput.toDouble(), waypointList.size) // No specific heading from manual input for marker
 
-            val waypoint = Waypoint(latitude, longitude, altitude)
+            val waypoint = Waypoint(latitude, longitude, altitudeInput)
+            // waypoint.heading will be 0 by default. Mission's headingMode will dictate behavior.
+
             if (waypointMissionBuilder == null) {
                 waypointMissionBuilder = WaypointMission.Builder().also { builder ->
                     waypointList.add(waypoint)
@@ -343,8 +466,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
                     builder.waypointList(waypointList).waypointCount(waypointList.size)
                 }
             }
-            setResultToToast("Waypoint added manually: Lat: $latitude, Lng: $longitude, Alt: $altitude m")
-            // Clear input fields after adding
+            setResultToToast("Waypoint added manually: Lat: $latitude, Lng: $longitude, Alt: $altitudeInput m")
             inputLat.text.clear()
             inputLng.text.clear()
             inputAlt.text.clear()
@@ -370,6 +492,8 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         jsonObject.put("latitude", currentLat)
         jsonObject.put("longitude", currentLng)
         jsonObject.put("altitude", currentAlt.toDouble())
+        // If you want to send current drone heading, you'd get it from FlightControllerState
+        // Example: jsonObject.put("heading", flightController.Compass.getHeading()) // Requires flightController instance
 
         val jsonData = jsonObject.toString()
         val apiUrl = "http://3.37.127.247:8080/waypoint"
@@ -447,6 +571,8 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             setResultToToast("No waypoints to upload.")
             return
         }
+        // Ensure the mission is configured before uploading
+        configWayPointMission() // This will apply the latest altitude, speed, heading mode, etc.
 
         getWaypointMissionOperator()?.uploadMission { error ->
             if (error == null) {
@@ -460,39 +586,28 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     private fun showSettingsDialog() {
         val wayPointSettings = layoutInflater.inflate(R.layout.dialog_waypointsetting, null) as LinearLayout
 
-        val wpAltitudeTV = wayPointSettings.findViewById<EditText>(R.id.altitude)
-        val speedSeekBar = wayPointSettings.findViewById<SeekBar>(R.id.speedSeekBar) // SeekBar 추가
-        val speedValueTextView = wayPointSettings.findViewById<TextView>(R.id.speedValueTextView) // TextView 추가
+        val wpAltitudeTV = wayPointSettings.findViewById<EditText>(R.id.altitude) // This is for the *default* altitude for new points
+        val speedSeekBar = wayPointSettings.findViewById<SeekBar>(R.id.speedSeekBar)
+        val speedValueTextView = wayPointSettings.findViewById<TextView>(R.id.speedValueTextView)
         val actionAfterFinishedRG = wayPointSettings.findViewById<RadioGroup>(R.id.actionAfterFinished)
         val headingRG = wayPointSettings.findViewById<RadioGroup>(R.id.heading)
 
-        wpAltitudeTV.setText(altitude.toInt().toString())
+        wpAltitudeTV.setText(altitude.toInt().toString()) // Sets the general altitude
 
-        // SeekBar 초기 값 설정
         speedSeekBar.progress = speed.toInt()
         speedValueTextView.text = String.format(Locale.US, "Current Speed: %.1f m/s", speed)
 
 
-        // SeekBar 변경 리스너
         speedSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                // 슬라이더 값이 변경될 때마다 speed 변수와 TextView 업데이트
                 speed = progress.toFloat()
                 speedValueTextView.text = String.format(Locale.US, "Current Speed: %.1f m/s", speed)
             }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                // 사용자가 슬라이더를 터치하기 시작할 때
-            }
-
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                // 사용자가 슬라이더 터치를 멈출 때
                 setResultToToast("Speed set to: %.1f m/s".format(speed))
             }
         })
-
-        // 기존 RadioGroup 속도 리스너는 이제 사용하지 않으므로 제거
-        // speedRG.setOnCheckedChangeListener { _, checkedId -> ... }
 
         when (finishedAction) {
             WaypointMissionFinishedAction.NO_ACTION -> actionAfterFinishedRG.check(R.id.finishNone)
@@ -501,11 +616,11 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             WaypointMissionFinishedAction.GO_FIRST_WAYPOINT -> actionAfterFinishedRG.check(R.id.finishToFirst)
             else -> {}
         }
-        when (headingMode) {
+        when (headingMode) { // Crucial for using individual waypoint headings
             WaypointMissionHeadingMode.AUTO -> headingRG.check(R.id.headingNext)
             WaypointMissionHeadingMode.USING_INITIAL_DIRECTION -> headingRG.check(R.id.headingInitDirec)
             WaypointMissionHeadingMode.CONTROL_BY_REMOTE_CONTROLLER -> headingRG.check(R.id.headingRC)
-            WaypointMissionHeadingMode.USING_WAYPOINT_HEADING -> headingRG.check(R.id.headingWP)
+            WaypointMissionHeadingMode.USING_WAYPOINT_HEADING -> headingRG.check(R.id.headingWP) // Select this to use individual headings
             else -> {}
         }
 
@@ -521,7 +636,7 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
         }
 
         headingRG.setOnCheckedChangeListener { _, checkedId ->
-            headingMode = when (checkedId) {
+            headingMode = when (checkedId) { // Make sure R.id.headingWP sets USING_WAYPOINT_HEADING
                 R.id.headingNext -> WaypointMissionHeadingMode.AUTO
                 R.id.headingInitDirec -> WaypointMissionHeadingMode.USING_INITIAL_DIRECTION
                 R.id.headingRC -> WaypointMissionHeadingMode.CONTROL_BY_REMOTE_CONTROLLER
@@ -535,8 +650,9 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
             .setView(wayPointSettings)
             .setPositiveButton("Finish") { _, _ ->
                 val altitudeString = wpAltitudeTV.text.toString()
-                altitude = nullToIntegerDefault(altitudeString).toFloat()
+                altitude = nullToIntegerDefault(altitudeString).toFloat() // This is the general altitude
                 Log.d(TAG, "Altitude: $altitude, Speed: $speed, Finished Action: $finishedAction, Heading Mode: $headingMode")
+                // ConfigWayPointMission will apply these settings to the mission object
                 configWayPointMission()
             }
             .setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
@@ -545,39 +661,70 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     }
 
     private fun configWayPointMission() {
-        val builder = waypointMissionBuilder ?: WaypointMission.Builder()
+        // If waypointMissionBuilder is null and waypointList is populated (e.g. from server), initialize builder.
+        if (waypointMissionBuilder == null && waypointList.isNotEmpty()) {
+            waypointMissionBuilder = WaypointMission.Builder().waypointList(waypointList).waypointCount(waypointList.size)
+        } else if (waypointMissionBuilder == null) {
+            // No waypoints yet, and no builder. Initialize an empty one.
+            waypointMissionBuilder = WaypointMission.Builder()
+        }
+
+
+        val builder = waypointMissionBuilder ?: return // Should not be null here with the above check but as a safeguard.
 
         builder.finishedAction(finishedAction)
-            .headingMode(headingMode)
+            .headingMode(headingMode) // This is key! If USING_WAYPOINT_HEADING, individual waypoint.heading is used.
             .autoFlightSpeed(speed)
-            .maxFlightSpeed(speed)
+            .maxFlightSpeed(speed) // Consider allowing different max speed
             .flightPathMode(WaypointMissionFlightPathMode.NORMAL)
             .gotoFirstWaypointMode(WaypointMissionGotoWaypointMode.SAFELY)
-            .isGimbalPitchRotationEnabled = true // 짐벌 피치 회전 활성화
+            .isGimbalPitchRotationEnabled = true
 
-        if (builder.waypointList.isNotEmpty()) {
-            // 각 웨이포인트의 고도를 개별적으로 유지
-            // waypoint.altitude = altitude // 이 줄은 제거합니다.
-            for (waypoint in builder.waypointList) {
-                // START_TAKE_PHOTO 액션을 웨이포인트 구성에서 제거
-                // 왜냐하면 MavicMiniMissionOperator에서 위치 기반으로 사진을 찍을 것이기 때문입니다.
-                waypoint.waypointActions.removeAll { it.actionType == WaypointActionType.START_TAKE_PHOTO }
-                // 짐벌 피치 액션 추가 (선택 사항, 필요에 따라)
-                if (waypoint.waypointActions.none { it.actionType == WaypointActionType.GIMBAL_PITCH }) {
-                    waypoint.addAction(WaypointAction(WaypointActionType.GIMBAL_PITCH, -90)) // 짐벌을 아래로 향하게 함
+        // The altitudes and headings for waypoints should already be set on the individual Waypoint objects
+        // in waypointList, especially if they came from the server or were manually added with specific altitudes.
+        // The 'altitude' variable from settings is more of a default for new map-clicked points.
+
+        // Update waypoints in the builder's list if they've changed (e.g., actions)
+        // This loop ensures all waypoints in the builder reflect the current state of waypointList
+        // and have any necessary default actions.
+        val currentWaypointsInBuilder = builder.waypointList
+        for (i in currentWaypointsInBuilder.indices) {
+            if (i < waypointList.size) {
+                val sourceWaypoint = waypointList[i] // The definitive waypoint from our list
+                val missionWaypoint = currentWaypointsInBuilder[i]
+
+                // Sync basic properties if they could differ (altitude, coordinates are primary)
+                missionWaypoint.coordinate = sourceWaypoint.coordinate
+                missionWaypoint.altitude = sourceWaypoint.altitude
+                missionWaypoint.heading = sourceWaypoint.heading // Ensure heading is synced
+
+                // Clear and add actions as per your logic
+                missionWaypoint.waypointActions.removeAll { it.actionType == WaypointActionType.START_TAKE_PHOTO }
+                if (missionWaypoint.waypointActions.none { it.actionType == WaypointActionType.GIMBAL_PITCH }) {
+                    missionWaypoint.addAction(WaypointAction(WaypointActionType.GIMBAL_PITCH, -90))
                 }
             }
+        }
+
+
+        if (builder.waypointList.isNotEmpty()) {
             setResultToToast("Set Waypoint parameters successfully")
         }
 
-        waypointMissionBuilder = builder
+        // No need to re-assign builder to waypointMissionBuilder if it's the same instance.
+        // waypointMissionBuilder = builder
 
         getWaypointMissionOperator()?.let { operator ->
-            val error = operator.loadMission(builder.build())
-            if (error == null) {
-                setResultToToast("loadWaypointMission succeeded")
+            val missionToLoad = builder.build() // Build the mission from the configured builder
+            if (missionToLoad.waypointCount > 0) {
+                val error = operator.loadMission(missionToLoad)
+                if (error == null) {
+                    setResultToToast("loadWaypointMission succeeded")
+                } else {
+                    setResultToToast("loadWaypointMission failed: ${error.description} (Code: ${(error as? DJIError)?.errorCode})")
+                }
             } else {
-                setResultToToast("loadWaypointMission failed: ${error.description} (Code: ${(error as? DJIError)?.errorCode})")
+                setResultToToast("Cannot load empty mission.")
             }
         }
     }
