@@ -145,17 +145,23 @@ class Waypoint1Activity : AppCompatActivity(), MapboxMap.OnMapClickListener, OnM
     }
 
     private fun markWaypoint(point: LatLng, alt: Double, index: Int, heading: Int? = null) {
-        val title = String.format(Locale.US, "WP %d: Lat: %.6f, Lng: %.6f", index + 1, point.latitude, point.longitude)
-        val snippet: String = if (heading != null) {
-            String.format(Locale.US, "Alt: %.2fm, Hdg: %d°", alt, heading)
+        val title: String
+        val snippet: String
+
+        if (heading != null) {
+            title = String.format(Locale.US, "WP %d: Lat: %.6f, Lng: %.6f, Alt: %.2fm, Hdg: %d°",
+                index + 1, point.latitude, point.longitude, alt, heading)
+            snippet = String.format(Locale.US, "Alt: %.2fm, Hdg: %d°", alt, heading) // Snippet can remain more concise or be same as title
         } else {
-            String.format(Locale.US, "Alt: %.2fm", alt)
+            title = String.format(Locale.US, "WP %d: Lat: %.6f, Lng: %.6f, Alt: %.2fm",
+                index + 1, point.latitude, point.longitude, alt)
+            snippet = String.format(Locale.US, "Alt: %.2fm", alt) // Snippet can remain more concise
         }
 
         val markerOptions = MarkerOptions()
             .position(point)
             .title(title)
-            .snippet(snippet)
+            .snippet(snippet) // You might want to adjust the snippet if the title now contains all info
         mapboxMap?.let {
             markers[index]?.remove() // 이전 마커가 있다면 제거 (업데이트 시 유용)
             val marker = it.addMarker(markerOptions)
