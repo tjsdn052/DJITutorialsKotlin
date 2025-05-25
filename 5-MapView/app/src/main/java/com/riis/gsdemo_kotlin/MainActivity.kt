@@ -322,7 +322,7 @@ class CameraActivity : AppCompatActivity(), TextureView.SurfaceTextureListener, 
         when(v?.id) {
             R.id.btn_capture -> {
                 // 캡처 버튼 누르면 화면 캡처 및 위치 전송
-                captureScreenAndUpload()
+                //captureScreenAndUpload()
                 sendWaypointToServer() // 위치 정보 전송
             }
             R.id.btn_shoot_photo_mode -> {
